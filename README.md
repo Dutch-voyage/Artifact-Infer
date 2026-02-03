@@ -1,4 +1,4 @@
-# Xylo-Infer
+# Artifact-Infer
 
 Yet another inference engine friendly for beginners and users. 
 
