@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="720" viewBox="0 0 960 720" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+
+  <rect width="960" height="720" fill="#FAFAFA"/>
+
+  <text x="480" y="32" text-anchor="middle" font-size="18" font-weight="700" fill="#222">
+    EP-LL Decode Throughput vs M_max  (8x RTX 4090, PCIe Gen4, Qwen3-30B-A3B)
+  </text>
+  <text x="480" y="52" text-anchor="middle" font-size="12" fill="#666">
+    Single request, 32 generated tokens | NCCL payload per leg = 128 * M_max * 5120 * 2B = 1.25 MB * M_max
+  </text>
+
+  <!-- Chart area: x=100..860, y=80..520 -->
+  <!-- Y axis: 0 to 28 tok/s -->
+  <!-- X axis: M_max = 1, 2, 4, 8, 16, 32, 64 (log2 positions) -->
+
+  <!-- Grid lines Y -->
+  <g stroke="#E0E0E0" stroke-width="0.8">
+    <line x1="100" y1="520" x2="860" y2="520"/>
+    <line x1="100" y1="441" x2="860" y2="441"/>
+    <line x1="100" y1="362" x2="860" y2="362"/>
+    <line x1="100" y1="283" x2="860" y2="283"/>
+    <line x1="100" y1="204" x2="860" y2="204"/>
+    <line x1="100" y1="125" x2="860" y2="125"/>
+    <line x1="100" y1="80" x2="860" y2="80"/>
+  </g>
+
+  <!-- Y axis labels (0, 5, 10, 15, 20, 25, 28) -->
+  <!-- scale: y = 520 - (val / 28) * 440 -->
+  <g font-size="11" fill="#555" text-anchor="end">
+    <text x="92" y="524">0</text>
+    <text x="92" y="441">5</text>
+    <text x="92" y="362">10</text>
+    <text x="92" y="283">15</text>
+    <text x="92" y="204">20</text>
+    <text x="92" y="125">25</text>
+    <text x="92" y="84">28</text>
+  </g>
+  <text x="40" y="300" text-anchor="middle" font-size="13" fill="#333" transform="rotate(-90, 40, 300)">Decode throughput (tok/s)</text>
+
+  <!-- X axis: log2 positions. M_max = 1,2,4,8,16,32,64 => log2 = 0,1,2,3,4,5,6 -->
+  <!-- x = 100 + (log2(M_max) / 6) * 760 -->
+  <!-- positions: 100, 227, 353, 480, 607, 733, 860 -->
+
+  <!-- Grid lines X -->
+  <g stroke="#E0E0E0" stroke-width="0.8" stroke-dasharray="3 3">
+    <line x1="100" y1="80" x2="100" y2="520"/>
+    <line x1="227" y1="80" x2="227" y2="520"/>
+    <line x1="353" y1="80" x2="353" y2="520"/>
+    <line x1="480" y1="80" x2="480" y2="520"/>
+    <line x1="607" y1="80" x2="607" y2="520"/>
+    <line x1="733" y1="80" x2="733" y2="520"/>
+    <line x1="860" y1="80" x2="860" y2="520"/>
+  </g>
+
+  <!-- X axis labels -->
+  <g font-size="11" fill="#555" text-anchor="middle">
+    <text x="100" y="540">1</text>
+    <text x="227" y="540">2</text>
+    <text x="353" y="540">4</text>
+    <text x="480" y="540">8</text>
+    <text x="607" y="540">16</text>
+    <text x="733" y="540">32</text>
+    <text x="860" y="540">64</text>
+  </g>
+  <text x="480" y="562" text-anchor="middle" font-size="13" fill="#333">M_max (log scale)</text>
+
+  <!-- Secondary X axis: NCCL payload size -->
+  <g font-size="9" fill="#888" text-anchor="middle">
+    <text x="100" y="555">1.25MB</text>
+    <text x="227" y="555">2.5MB</text>
+    <text x="353" y="555">5MB</text>
+    <text x="480" y="555">10MB</text>
+    <text x="607" y="555">20MB</text>
+    <text x="733" y="555">40MB</text>
+    <text x="860" y="555">80MB</text>
+  </g>
+  <text x="480" y="572" text-anchor="middle" font-size="10" fill="#888">(NCCL payload per leg)</text>
+
+  <!-- Axes border -->
+  <line x1="100" y1="80" x2="100" y2="520" stroke="#333" stroke-width="1.5"/>
+  <line x1="100" y1="520" x2="860" y2="520" stroke="#333" stroke-width="1.5"/>
+
+  <!-- Data: TP=1 EP=8 (blue) -->
+  <!-- M_max: 1=25, 2=18, 4=12, 8=7, 16=4, 32=2, 64=1 -->
+  <!-- y = 520 - (val/28)*440 -->
+  <!-- 25: 520-393=127, 18: 520-283=237, 12: 520-189=331, 7: 520-110=410, 4: 520-63=457, 2: 520-31=489, 1: 520-16=504 -->
+  <polyline
+    points="100,127 227,237 353,331 480,410 607,457 733,489 860,504"
+    fill="none" stroke="#1976D2" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#1976D2">
+    <circle cx="100" cy="127" r="5"/>
+    <circle cx="227" cy="237" r="5"/>
+    <circle cx="353" cy="331" r="5"/>
+    <circle cx="480" cy="410" r="5"/>
+    <circle cx="607" cy="457" r="5"/>
+    <circle cx="733" cy="489" r="5"/>
+    <circle cx="860" cy="504" r="5"/>
+  </g>
+  <!-- Data labels for TP=1 EP=8 -->
+  <g font-size="11" fill="#1976D2" font-weight="600">
+    <text x="100" y="117" text-anchor="middle">25</text>
+    <text x="227" y="227" text-anchor="middle">18</text>
+    <text x="353" y="321" text-anchor="middle">12</text>
+    <text x="480" y="400" text-anchor="middle">7</text>
+    <text x="607" y="447" text-anchor="middle">4</text>
+    <text x="733" y="479" text-anchor="middle">2</text>
+    <text x="860" y="494" text-anchor="middle">1</text>
+  </g>
+
+  <!-- Data: TP=2 EP=4 (orange) -->
+  <!-- M_max: 1=19, 2=15, 4=11, 8=8, 16=4, 32=2, 64=1 -->
+  <!-- 19: 520-298=222, 15: 520-236=284, 11: 520-173=347, 8: 520-126=394, 4: 457, 2: 489, 1: 504 -->
+  <!-- Offset slightly to avoid overlap at low M_max values -->
+  <polyline
+    points="100,222 227,284 353,347 480,394 607,457 733,489 860,504"
+    fill="none" stroke="#E65100" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#E65100">
+    <circle cx="100" cy="222" r="5"/>
+    <circle cx="227" cy="284" r="5"/>
+    <circle cx="353" cy="347" r="5"/>
+    <circle cx="480" cy="394" r="5"/>
+    <circle cx="607" cy="457" r="5"/>
+    <circle cx="733" cy="489" r="5"/>
+    <circle cx="860" cy="504" r="5"/>
+  </g>
+  <!-- Data labels for TP=2 EP=4 -->
+  <g font-size="11" fill="#E65100" font-weight="600">
+    <text x="112" y="235" text-anchor="start">19</text>
+    <text x="240" y="297" text-anchor="start">15</text>
+    <text x="366" y="360" text-anchor="start">11</text>
+    <text x="493" y="407" text-anchor="start">8</text>
+    <text x="620" y="470" text-anchor="start">4</text>
+    <text x="746" y="502" text-anchor="start">2</text>
+    <text x="860" y="517" text-anchor="middle">1</text>
+  </g>
+
+  <!-- Legend -->
+  <g transform="translate(620, 90)">
+    <rect x="0" y="0" width="220" height="60" rx="6" fill="#FFFFFF" stroke="#CCC" stroke-width="1"/>
+    <line x1="15" y1="20" x2="45" y2="20" stroke="#1976D2" stroke-width="2.5"/>
+    <circle cx="30" cy="20" r="4" fill="#1976D2"/>
+    <text x="55" y="24" font-size="12" fill="#333">TP=1, EP=8 (pure EP)</text>
+    <line x1="15" y1="44" x2="45" y2="44" stroke="#E65100" stroke-width="2.5"/>
+    <circle cx="30" cy="44" r="4" fill="#E65100"/>
+    <text x="55" y="48" font-size="12" fill="#333">TP=2, EP=4 (TP x EP)</text>
+  </g>
+
+  <!-- Analysis box below chart -->
+  <g transform="translate(100, 590)">
+    <rect x="0" y="0" width="760" height="115" rx="8" fill="#FFFFFF" stroke="#1976D2" stroke-width="1.2"/>
+    <text x="20" y="22" font-size="13" font-weight="700" fill="#1976D2">Analysis</text>
+
+    <text x="20" y="42" font-size="11" fill="#333">1. Decode tok/s scales roughly as 1/M_max -- dominated by NCCL all_to_all_single latency (2 legs x 48 layers).</text>
+    <text x="20" y="58" font-size="11" fill="#333">2. TP=1/EP=8 beats TP=2/EP=4 at every M_max because TP adds all-reduce overhead on attention layers.</text>
+    <text x="20" y="74" font-size="11" fill="#333">3. At M_max=1 (decode-optimal): 25 tok/s with 1.25 MB per leg. PCIe latency floor ~50us/leg dominates.</text>
+    <text x="20" y="90" font-size="11" fill="#333">4. At M_max=64: 1 tok/s. Each leg = 80 MB, 2 legs x 48 layers = 7.68 GB NCCL traffic per token.</text>
+    <text x="20" y="106" font-size="11" fill="#333">5. Both converge to ~1 tok/s at M_max=64 -- at that point NCCL bandwidth-bound, TP overhead negligible.</text>
+  </g>
+
+</svg>

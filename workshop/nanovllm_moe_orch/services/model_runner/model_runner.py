@@ -1,0 +1,411 @@
+import torch
+from collections.abc import Callable
+
+from ..config import Config
+from ..engine.sequence import Sequence
+
+from ..utils.context import set_context, get_context, reset_context
+from ..utils.loader import load_model
+
+from src.core.service import BaseService
+from src.core.orchestrator import RegistryOrchestrator
+
+import itertools
+
+from workshop.nanovllm_moe_orch.artifacts.modeling.layers.sampler import Sampler
+
+from enum import Enum
+
+
+class RunningStage(Enum):
+    WARMUP = 1
+    INFERENCE = 2
+
+
+class ModelRunner(BaseService):
+    @property
+    def name(self):
+        return f"ModelRunner-Rank{self.rank}"
+
+    def __init__(
+        self,
+        config: Config,
+        wire_components: Callable[[RegistryOrchestrator, "ModelRunner", Config], torch.nn.Module],
+        use_cuda_graph: bool,
+    ):
+        super().__init__()
+        # In pure-EP mode (mp.spawn'd processes) every rank runs its own engine
+        # independently, so use the TP-group rank (which is always 0 for size-1 TP).
+        # That makes the "rank 0 only" branches in this file (sampling, etc.) fire
+        # on every process — correct, because every process needs the next token.
+        from workshop.nanovllm_moe_orch.services.utils.parallel import get_tp_rank
+        self.rank = get_tp_rank()
+        self.config = config
+        self.block_size = config.kvcache_block_size
+        self.use_cuda_graph = bool(use_cuda_graph)
+        self.world_size = config.tensor_parallel_size
+        
+        torch.set_default_dtype(self.config.hf_config.torch_dtype)
+        
+        orch = RegistryOrchestrator()
+        self.model = wire_components(orch, self, config)
+        orch.finalize()
+                
+        self.__post_init__()
+    
+    def __post_init__(self):
+        self._mem_print("[MEM] before load_model")
+        load_model(self.model, self.config.model)
+        self._mem_print("[MEM] after  load_model")
+        self.sampler = Sampler()
+        self.allocate_kv_cache()
+        self._mem_print("[MEM] after  allocate_kv_cache")
+
+        # self.stage = RunningStage.WARMUP
+        # self.warmup_model()
+        # print("after warmup")
+        self.stage = RunningStage.INFERENCE
+
+        
+        self.graphs = {}
+        self.graph_pool = None
+
+        if self.use_cuda_graph:
+            self.capture_cudagraph()
+            self._mem_print("[MEM] after  capture_cudagraph")
+            print("after capturing cuda graph")
+        else:
+            self._mem_print("[MEM] after  skip_cudagraph")
+            print("cuda graph disabled by recipe")
+
+    def _mem_print(self, tag: str) -> None:
+        """One-line GPU memory snapshot for this rank.
+
+        Prints peak/current/free along with cuda-graph private-pool usage so
+        you can pinpoint which startup phase blew the budget. Set MOE_NO_MEM=1
+        to silence."""
+        import os
+        if os.environ.get("MOE_NO_MEM"):
+            return
+        free, total = torch.cuda.mem_get_info()
+        stats = torch.cuda.memory_stats()
+        cur = stats["allocated_bytes.all.current"]
+        peak = stats["allocated_bytes.all.peak"]
+        gib = 1024 ** 3
+        rk = self.rank
+        print(
+            f"{tag} | rank{rk}: cur={cur/gib:.2f}GiB peak={peak/gib:.2f}GiB "
+            f"free={free/gib:.2f}GiB total={total/gib:.2f}GiB",
+            flush=True,
+        )
+        # default_dtype = torch.get_default_dtype()
+        # torch.set_default_device("cpu")
+        # torch.set_default_dtype(default_dtype)
+    
+    def cleanup(self): 
+        del self.graphs, self.graph_pool
+
+
+    def warmup_model(self):
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+        max_num_batched_tokens, max_model_len = (
+            self.config.max_num_batched_tokens,
+            self.config.max_model_len,
+        )
+        num_seqs = min(
+            max_num_batched_tokens // max_model_len, self.config.max_num_seqs
+        )
+        seqs = [Sequence.from_prompt([0] * max_model_len) for _ in range(num_seqs)]
+        self.run(seqs, True)
+        torch.cuda.empty_cache()
+
+    def allocate_kv_cache(self):
+        print(f"Allocating KV cache on cuda {torch.get_default_device()}...")
+        config = self.config
+        hf_config = config.hf_config
+        free, total = torch.cuda.mem_get_info()
+        used = total - free
+        peak = torch.cuda.memory_stats()["allocated_bytes.all.peak"]
+        current = torch.cuda.memory_stats()["allocated_bytes.all.current"]
+        num_kv_heads = hf_config.num_key_value_heads // self.world_size
+        block_bytes = (
+            2
+            * hf_config.num_hidden_layers
+            * self.block_size
+            * num_kv_heads
+            * hf_config.head_dim
+            * hf_config.torch_dtype.itemsize
+        )
+        config.num_kvcache_blocks = (
+            int(total * config.gpu_memory_utilization - used - peak + current)
+            // block_bytes
+        )
+        assert config.num_kvcache_blocks > 0        
+        
+        self.kv_cache = torch.zeros(
+            2,
+            hf_config.num_hidden_layers,
+            config.num_kvcache_blocks,
+            self.block_size,
+            num_kv_heads,
+            hf_config.head_dim,
+        )
+        layer_id = 0
+        for module in self.model.modules():
+            if hasattr(module, "k_cache") and hasattr(module, "v_cache"):
+                module.k_cache = self.kv_cache[0, layer_id]
+                module.v_cache = self.kv_cache[1, layer_id]
+                layer_id += 1
+
+    def prepare_block_tables(self, seqs: list[Sequence]):
+        max_len = max(len(seq.block_table) for seq in seqs)
+        block_tables = [
+            seq.block_table + [-1] * (max_len - len(seq.block_table)) for seq in seqs
+        ]
+        block_tables = torch.tensor(
+            block_tables, dtype=torch.int32, pin_memory=True
+        ).cuda(non_blocking=True)
+        return block_tables
+
+    def prepare_prefill(self, seqs: list[Sequence]):
+        input_ids = []
+        positions = []
+        cu_seqlens_q = [0]
+        cu_seqlens_k = [0]
+        max_seqlen_q = 0
+        max_seqlen_k = 0
+        slot_mapping = []
+        block_tables = None
+        for seq in seqs:
+            seqlen = len(seq)
+            input_ids.extend(seq[seq.num_cached_tokens :])
+            positions.extend(list(range(seq.num_cached_tokens, seqlen)))
+            seqlen_q = seqlen - seq.num_cached_tokens
+            seqlen_k = seqlen
+            cu_seqlens_q.append(cu_seqlens_q[-1] + seqlen_q)
+            cu_seqlens_k.append(cu_seqlens_k[-1] + seqlen_k)
+            max_seqlen_q = max(seqlen_q, max_seqlen_q)
+            max_seqlen_k = max(seqlen_k, max_seqlen_k)
+            if not seq.block_table:
+                continue
+            for i in range(seq.num_cached_blocks, seq.num_blocks):
+                start = seq.block_table[i] * self.block_size
+                if i != seq.num_blocks - 1:
+                    end = start + self.block_size
+                else:
+                    end = start + seq.last_block_num_tokens
+                slot_mapping.extend(list(range(start, end)))
+        if cu_seqlens_k[-1] > cu_seqlens_q[-1]:  # prefix cache
+            block_tables = self.prepare_block_tables(seqs)
+        input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(
+            non_blocking=True
+        )
+        positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(
+            non_blocking=True
+        )
+        cu_seqlens_q = torch.tensor(
+            cu_seqlens_q, dtype=torch.int32, pin_memory=True
+        ).cuda(non_blocking=True)
+        cu_seqlens_k = torch.tensor(
+            cu_seqlens_k, dtype=torch.int32, pin_memory=True
+        ).cuda(non_blocking=True)
+        slot_mapping = torch.tensor(
+            slot_mapping, dtype=torch.int32, pin_memory=True
+        ).cuda(non_blocking=True)
+        
+        set_context(
+            True,
+            cu_seqlens_q,
+            cu_seqlens_k,
+            max_seqlen_q,
+            max_seqlen_k,
+            slot_mapping,
+            None,
+            block_tables,
+            num_tokens=int(input_ids.size(0)),
+        )
+
+        self.prepare_metadata_for_attn_prefill(seqs)
+        if hasattr(self, "prepare_metadata_for_moe"):
+            self.prepare_metadata_for_moe(int(input_ids.size(0)))
+
+        return input_ids, positions
+
+    def prepare_decode(self, seqs: list[Sequence]):
+        input_ids = []
+        positions = []
+        slot_mapping = []
+        context_lens = []
+        for seq in seqs:
+            input_ids.append(seq.last_token)
+            positions.append(len(seq))
+            context_lens.append(len(seq))
+            slot_mapping.append(
+                seq.block_table[-1] * self.block_size + seq.last_block_num_tokens - 1
+            )
+        input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(
+            non_blocking=True
+        )
+        positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(
+            non_blocking=True
+        )
+        slot_mapping = torch.tensor(
+            slot_mapping, dtype=torch.int32, pin_memory=True
+        ).cuda(non_blocking=True)
+        context_lens = torch.tensor(
+            context_lens, dtype=torch.int32, pin_memory=True
+        ).cuda(non_blocking=True)
+        block_tables = self.prepare_block_tables(seqs)
+        set_context(
+            False,
+            slot_mapping=slot_mapping,
+            context_lens=context_lens,
+            block_tables=block_tables,
+            num_tokens=int(input_ids.size(0)),
+        )
+
+        if hasattr(self, "prepare_metadata_for_moe"):
+            self.prepare_metadata_for_moe(int(input_ids.size(0)))
+
+        if self.use_cuda_graph and self.stage != RunningStage.WARMUP:
+            # cuda_graph enabled
+            bs = len(seqs)
+            seq_lens = torch.tensor(
+                [0] + [len(seq.block_table) for seq in seqs], device="cuda"
+            )
+            cu_page_indices = torch.tensor(
+                list(itertools.chain(*[seq.block_table for seq in seqs])), device="cuda"
+            ).to(torch.int32)
+            self.init_forward_metadata_replay_cuda_graph(
+                bs,
+                seq_lens,
+                cu_page_indices,
+            )
+        else:
+            self.prepare_metadata_for_attn_decode(seqs)
+        return input_ids, positions
+
+    def prepare_sample(self, seqs: list[Sequence]):
+        temperatures = []
+        for seq in seqs:
+            temperatures.append(seq.temperature)
+        temperatures = torch.tensor(
+            temperatures, dtype=torch.float32, pin_memory=True
+        ).cuda(non_blocking=True)
+        return temperatures
+
+    @torch.inference_mode()
+    def run_model(
+        self, input_ids: torch.Tensor, positions: torch.Tensor, is_prefill: bool
+    ):
+        if is_prefill or not self.use_cuda_graph or input_ids.size(0) > 512:
+            return self.model.compute_logits(self.model(input_ids, positions))
+        else:
+            bs = input_ids.size(0)
+            context = get_context()
+            graph = self.graphs[next(x for x in self.graph_bs if x >= bs)]
+            graph_vars = self.graph_vars
+            for k, v in graph_vars.items():
+                if k != "outputs":
+                    v.zero_()
+            graph_vars["input_ids"][:bs] = input_ids
+            graph_vars["positions"][:bs] = positions
+            graph_vars["slot_mapping"][:bs] = context.slot_mapping
+            graph_vars["context_lens"][:bs] = context.context_lens
+            graph_vars["block_tables"][
+                :bs, : context.block_tables.size(1)
+            ] = context.block_tables
+            graph.replay()
+            return self.model.compute_logits(graph_vars["outputs"][:bs])
+
+    @torch.inference_mode()
+    def run(self, seqs: list[Sequence], is_prefill: bool) -> list[int]:
+        from workshop.nanovllm_moe_orch.services.utils.parallel import (
+            get_tp_group, get_tp_world_size,
+        )
+        import torch.distributed as dist
+
+        input_ids, positions = (
+            self.prepare_prefill(seqs) if is_prefill else self.prepare_decode(seqs)
+        )
+        temperatures = self.prepare_sample(seqs) if self.rank == 0 else None
+
+        logits = self.run_model(input_ids, positions, is_prefill)
+        token_ids = (
+            self.sampler(logits, temperatures).tolist() if self.rank == 0 else None
+        )
+
+        # TP × EP: only tp_rank==0 samples; broadcast within TP subgroup so every
+        # TP rank has the same tokens to update its sequence state. Pure EP (Tp=1)
+        # is a no-op since every rank has tp_rank==0 and sampled independently.
+        if get_tp_world_size() > 1:
+            obj_list = [token_ids]
+            tp_grp = get_tp_group()
+            src_global = dist.get_global_rank(tp_grp, 0)
+            dist.broadcast_object_list(obj_list, src=src_global, group=tp_grp)
+            token_ids = obj_list[0]
+
+        reset_context()
+        return token_ids
+
+    @torch.inference_mode()
+    def capture_cudagraph(self):
+        # capture cudagraph for decode only
+        config = self.config
+        hf_config = config.hf_config
+        max_bs = min(self.config.max_num_seqs, 512)
+        max_num_blocks = (config.max_model_len + self.block_size - 1) // self.block_size
+        input_ids = torch.zeros(max_bs, dtype=torch.int64)
+        positions = torch.zeros(max_bs, dtype=torch.int64)
+        slot_mapping = torch.zeros(max_bs, dtype=torch.int32)
+        context_lens = torch.zeros(max_bs, dtype=torch.int32)
+        block_tables = torch.zeros(max_bs, max_num_blocks, dtype=torch.int32)
+
+        seqs = [Sequence.for_capture([0]) for _ in range(max_bs)]
+        cu_page_indices = torch.tensor(
+            list(itertools.chain(*[seq.block_table for seq in seqs])), device="cuda"
+        ).to(torch.int32)
+        seq_lens = torch.tensor(
+            [0] + [len(seq.block_table) for seq in seqs], device="cuda"
+        )
+
+        outputs = torch.zeros(max_bs, hf_config.hidden_size)
+        # Capture sizes 1..min(max_bs, 8). max_bs comes from max_num_seqs and may be
+        # smaller than 8, in which case our pre-allocated buffers can't hold a larger BS.
+        self.graph_bs = list(range(1, min(max_bs, 8) + 1))
+
+        for bs in reversed(self.graph_bs):
+            graph = torch.cuda.CUDAGraph()
+            set_context(
+                False,
+                slot_mapping=slot_mapping[:bs],
+                context_lens=context_lens[:bs],
+                block_tables=block_tables[:bs],
+                num_tokens=bs,
+            )
+            self.init_forward_metadata_capture_cuda_graph(
+                bs, seq_lens[: bs + 1], cu_page_indices
+            )
+            # MoE: prepare moe metadata BEFORE warmup AND capture; dispatch will refill
+            # num_tokens_post_padded inside the captured region, so the captured launches
+            # bind to that buffer pointer (which is persistent for the engine's lifetime).
+            if hasattr(self, "prepare_metadata_for_moe"):
+                self.prepare_metadata_for_moe(bs)
+            outputs[:bs] = self.model(input_ids[:bs], positions[:bs])  # warmup
+            with torch.cuda.graph(graph, self.graph_pool):
+                outputs[:bs] = self.model(input_ids[:bs], positions[:bs])  # capture
+            if self.graph_pool is None:
+                self.graph_pool = graph.pool()
+            self.graphs[bs] = graph
+            torch.cuda.synchronize()
+            reset_context()
+
+        self.graph_vars = dict(
+            input_ids=input_ids,
+            positions=positions,
+            slot_mapping=slot_mapping,
+            context_lens=context_lens,
+            block_tables=block_tables,
+            outputs=outputs,
+        )
