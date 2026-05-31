@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="580" viewBox="0 0 960 580" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+
+  <rect width="960" height="580" fill="#FAFAFA"/>
+
+  <text x="480" y="30" text-anchor="middle" font-size="18" font-weight="700" fill="#222">
+    EP-LL vs EP-HT: Per-Token NCCL Cost Breakdown (Decode, 1 token)
+  </text>
+  <text x="480" y="50" text-anchor="middle" font-size="12" fill="#666">
+    8x RTX 4090 PCIe Gen4 | Qwen3-30B-A3B (128 experts, H=5120, 48 MoE layers, K=8)
+  </text>
+
+  <!-- Two-panel layout: left = stacked bar chart, right = time estimate -->
+
+  <!-- LEFT PANEL: Stacked bar showing NCCL bytes per token -->
+  <!-- Bars for M_max = 1, 2, 4, 8, 16, 32, 64 + EP-HT -->
+  <!-- Per-token total NCCL = 2 legs * 48 layers * payload_per_leg -->
+  <!-- payload_per_leg: EP-LL = 128 * M_max * 5120 * 2 = 1.25 MB * M_max -->
+  <!-- EP-HT (decode): hidden=K*H*2=80KB, eid+w=64B, total~80KB per leg -->
+  <!-- total per token: EP-LL = 2 * 48 * 1.25MB * M_max = 120 MB * M_max -->
+  <!--                  EP-HT = 2 * 48 * 0.08MB = 7.68 MB -->
+
+  <text x="280" y="80" text-anchor="middle" font-size="14" font-weight="600" fill="#333">Total NCCL Traffic per Generated Token</text>
+
+  <!-- Chart area: x=80..520, y=100..430 -->
+  <!-- Y axis: 0 to 8000 MB (8 GB) log scale would be better but let's do linear with cutoff -->
+  <!-- Actually let's do log scale: values are 120, 240, 480, 960, 1920, 3840, 7680, 7.68 -->
+  <!-- Use log10 scale: log10(7.68)=0.89, log10(120)=2.08, log10(7680)=3.89 -->
+  <!-- y range maps log10(5) to log10(10000): 0.7 to 4.0, span=3.3 -->
+  <!-- y = 430 - ((log10(val) - 0.7) / 3.3) * 330 -->
+
+  <!-- Y grid lines at 10, 100, 1000, 10000 MB -->
+  <g stroke="#E0E0E0" stroke-width="0.8">
+    <line x1="80" y1="400" x2="520" y2="400"/>  <!-- 10 MB: 430-((1-0.7)/3.3)*330 = 430-30=400 -->
+    <line x1="80" y1="300" x2="520" y2="300"/>  <!-- 100 MB: 430-((2-0.7)/3.3)*330 = 430-130=300 -->
+    <line x1="80" y1="200" x2="520" y2="200"/>  <!-- 1000 MB: 430-((3-0.7)/3.3)*330 = 430-230=200 -->
+    <line x1="80" y1="100" x2="520" y2="100"/>  <!-- 10000 MB: 430-((4-0.7)/3.3)*330 = 430-330=100 -->
+  </g>
+
+  <!-- Y axis labels -->
+  <g font-size="11" fill="#555" text-anchor="end">
+    <text x="73" y="404">10 MB</text>
+    <text x="73" y="304">100 MB</text>
+    <text x="73" y="204">1 GB</text>
+    <text x="73" y="104">10 GB</text>
+  </g>
+  <text x="30" y="265" text-anchor="middle" font-size="12" fill="#333" transform="rotate(-90, 30, 265)">NCCL traffic / token (log)</text>
+
+  <!-- Bars -->
+  <!-- x positions: 8 bars, width=45, gap=10, start at x=100 -->
+  <!-- EP-LL M_max=1: 120 MB, log10=2.08, y=430-((2.08-0.7)/3.3)*330=430-138=292, h=430-292=138 -->
+  <!-- EP-LL M_max=2: 240 MB, log10=2.38, y=430-168=262, h=168 -->
+  <!-- EP-LL M_max=4: 480 MB, log10=2.68, y=430-198=232, h=198 -->
+  <!-- EP-LL M_max=8: 960 MB, log10=2.98, y=430-228=202, h=228 -->
+  <!-- EP-LL M_max=16: 1920 MB, log10=3.28, y=430-258=172, h=258 -->
+  <!-- EP-LL M_max=32: 3840 MB, log10=3.58, y=430-288=142, h=288 -->
+  <!-- EP-LL M_max=64: 7680 MB, log10=3.89, y=430-319=111, h=319 -->
+  <!-- EP-HT: 7.68 MB, log10=0.89, y=430-((0.89-0.7)/3.3)*330=430-19=411, h=19 -->
+
+  <!-- Bars: EP-LL (gradient blue) -->
+  <rect x="100" y="292" width="45" height="138" rx="3" fill="#1976D2" opacity="0.85"/>
+  <rect x="155" y="262" width="45" height="168" rx="3" fill="#1976D2" opacity="0.85"/>
+  <rect x="210" y="232" width="45" height="198" rx="3" fill="#1976D2" opacity="0.85"/>
+  <rect x="265" y="202" width="45" height="228" rx="3" fill="#1976D2" opacity="0.85"/>
+  <rect x="320" y="172" width="45" height="258" rx="3" fill="#1976D2" opacity="0.85"/>
+  <rect x="375" y="142" width="45" height="288" rx="3" fill="#1976D2" opacity="0.85"/>
+  <rect x="430" y="111" width="45" height="319" rx="3" fill="#1976D2" opacity="0.85"/>
+
+  <!-- Bar: EP-HT (green) -->
+  <rect x="495" y="411" width="45" height="19" rx="3" fill="#388E3C" opacity="0.85"/>
+
+  <!-- Bar labels (value on top) -->
+  <g font-size="9" fill="#333" text-anchor="middle" font-weight="600">
+    <text x="123" y="285">120MB</text>
+    <text x="178" y="255">240MB</text>
+    <text x="233" y="225">480MB</text>
+    <text x="288" y="195">960MB</text>
+    <text x="343" y="165">1.9GB</text>
+    <text x="398" y="135">3.8GB</text>
+    <text x="453" y="104">7.7GB</text>
+    <text x="518" y="404">7.7MB</text>
+  </g>
+
+  <!-- X axis labels -->
+  <g font-size="10" fill="#555" text-anchor="middle">
+    <text x="123" y="448">M=1</text>
+    <text x="178" y="448">M=2</text>
+    <text x="233" y="448">M=4</text>
+    <text x="288" y="448">M=8</text>
+    <text x="343" y="448">M=16</text>
+    <text x="398" y="448">M=32</text>
+    <text x="453" y="448">M=64</text>
+    <text x="518" y="448">EP-HT</text>
+  </g>
+  <g font-size="9" fill="#888" text-anchor="middle">
+    <text x="280" y="462">EP-LL (fixed payload)</text>
+    <text x="518" y="462">(ragged)</text>
+  </g>
+
+  <!-- Axes -->
+  <line x1="80" y1="100" x2="80" y2="430" stroke="#333" stroke-width="1.5"/>
+  <line x1="80" y1="430" x2="555" y2="430" stroke="#333" stroke-width="1.5"/>
+
+  <!-- Measured decode speed annotation -->
+  <g font-size="9" fill="#1976D2" text-anchor="middle" font-weight="600">
+    <text x="123" y="460">25t/s</text>
+    <text x="178" y="460">18t/s</text>
+    <text x="233" y="460">12t/s</text>
+    <text x="288" y="460">7t/s</text>
+    <text x="343" y="460">4t/s</text>
+    <text x="398" y="460">2t/s</text>
+    <text x="453" y="460">1t/s</text>
+  </g>
+
+  <!-- RIGHT PANEL: Time decomposition -->
+  <g transform="translate(580, 80)">
+    <rect x="0" y="0" width="350" height="390" rx="8" fill="#FFFFFF" stroke="#CCC" stroke-width="1"/>
+    <text x="175" y="24" text-anchor="middle" font-size="14" font-weight="600" fill="#333">Decode Latency Decomposition</text>
+    <text x="175" y="42" text-anchor="middle" font-size="10" fill="#666">(per token, 48 MoE layers, 2 legs each)</text>
+
+    <!-- Table header -->
+    <line x1="10" y1="55" x2="340" y2="55" stroke="#DDD"/>
+    <text x="20" y="70" font-size="10" font-weight="600" fill="#555">Config</text>
+    <text x="100" y="70" font-size="10" font-weight="600" fill="#555">Payload/leg</text>
+    <text x="180" y="70" font-size="10" font-weight="600" fill="#555">t_a2a (est)</text>
+    <text x="250" y="70" font-size="10" font-weight="600" fill="#555">Total NCCL</text>
+    <text x="310" y="70" font-size="10" font-weight="600" fill="#555">tok/s</text>
+    <line x1="10" y1="78" x2="340" y2="78" stroke="#DDD"/>
+
+    <!-- Rows -->
+    <g font-size="10" fill="#333">
+      <text x="20" y="95">LL M=1</text>
+      <text x="100" y="95">1.25 MB</text>
+      <text x="180" y="95">~0.2 ms</text>
+      <text x="250" y="95">19 ms</text>
+      <text x="310" y="95" font-weight="600" fill="#1976D2">25</text>
+
+      <text x="20" y="115">LL M=2</text>
+      <text x="100" y="115">2.5 MB</text>
+      <text x="180" y="115">~0.4 ms</text>
+      <text x="250" y="115">38 ms</text>
+      <text x="310" y="115" font-weight="600" fill="#1976D2">18</text>
+
+      <text x="20" y="135">LL M=4</text>
+      <text x="100" y="135">5 MB</text>
+      <text x="180" y="135">~0.7 ms</text>
+      <text x="250" y="135">67 ms</text>
+      <text x="310" y="135" font-weight="600" fill="#1976D2">12</text>
+
+      <text x="20" y="155">LL M=8</text>
+      <text x="100" y="155">10 MB</text>
+      <text x="180" y="155">~1.3 ms</text>
+      <text x="250" y="155">125 ms</text>
+      <text x="310" y="155" font-weight="600" fill="#1976D2">7</text>
+
+      <text x="20" y="175">LL M=16</text>
+      <text x="100" y="175">20 MB</text>
+      <text x="180" y="175">~2.5 ms</text>
+      <text x="250" y="175">240 ms</text>
+      <text x="310" y="175" font-weight="600" fill="#1976D2">4</text>
+
+      <text x="20" y="195">LL M=32</text>
+      <text x="100" y="195">40 MB</text>
+      <text x="180" y="195">~5.0 ms</text>
+      <text x="250" y="195">480 ms</text>
+      <text x="310" y="195" font-weight="600" fill="#1976D2">2</text>
+
+      <text x="20" y="215">LL M=64</text>
+      <text x="100" y="215">80 MB</text>
+      <text x="180" y="215">~10 ms</text>
+      <text x="250" y="215">960 ms</text>
+      <text x="310" y="215" font-weight="600" fill="#1976D2">1</text>
+    </g>
+
+    <line x1="10" y1="225" x2="340" y2="225" stroke="#DDD"/>
+
+    <g font-size="10" fill="#388E3C" font-weight="600">
+      <text x="20" y="245">EP-HT</text>
+      <text x="100" y="245">~80 KB</text>
+      <text x="180" y="245">~0.05 ms</text>
+      <text x="250" y="245">~5 ms</text>
+      <text x="310" y="245">~15*</text>
+    </g>
+    <text x="20" y="265" font-size="9" fill="#666">* EP-HT limited by host sync + eager kernel launch, not NCCL BW</text>
+
+    <line x1="10" y1="278" x2="340" y2="278" stroke="#DDD"/>
+
+    <!-- Formula -->
+    <text x="20" y="300" font-size="11" font-weight="600" fill="#333">Formulas:</text>
+    <text x="20" y="318" font-size="10" fill="#333" font-family="monospace">t_a2a = payload / BW_effective</text>
+    <text x="20" y="334" font-size="10" fill="#333" font-family="monospace">BW_eff ~ 6 GB/s (PCIe a2a, 8 GPU)</text>
+    <text x="20" y="350" font-size="10" fill="#333" font-family="monospace">Total = 2 * 48 * t_a2a + compute</text>
+    <text x="20" y="366" font-size="10" fill="#333" font-family="monospace">tok/s ~ 1000 / Total_ms</text>
+    <text x="20" y="382" font-size="9" fill="#888">Note: compute ~2ms/tok, negligible vs NCCL at M_max>=4</text>
+  </g>
+
+  <!-- Bottom annotation -->
+  <g transform="translate(80, 490)">
+    <rect x="0" y="0" width="480" height="75" rx="6" fill="#E8F5E9" stroke="#388E3C" stroke-width="1.2"/>
+    <text x="15" y="18" font-size="11" font-weight="700" fill="#1B5E20">Key Takeaway</text>
+    <text x="15" y="36" font-size="11" fill="#333">EP-LL decode is bandwidth-bound. NCCL traffic = 120 MB * M_max per token.</text>
+    <text x="15" y="52" font-size="11" fill="#333">On PCIe (no NVLink): set M_max=1 for decode, use EP-HT or TP for prefill.</text>
+    <text x="15" y="68" font-size="11" fill="#333">EP-HT sends 15x less data but pays host-sync cost (no CUDA graph).</text>
+  </g>
+
+</svg>
