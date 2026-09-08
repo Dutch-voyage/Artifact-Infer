@@ -6,6 +6,14 @@ from src.core.registry import (
     RegistryCompileError,
     RegistryGraph,
 )
+from src.core.snapshot import (
+    SnapshotDifference,
+    SnapshotRecord,
+    TensorFingerprint,
+    TensorSnapshot,
+    TensorSnapshotSession,
+    first_snapshot_difference,
+)
 
 __all__ = [
     "BindingSpec",
@@ -14,4 +22,10 @@ __all__ = [
     "REGISTRY_GRAPH_SCHEMA",
     "RegistryCompileError",
     "RegistryGraph",
+    "SnapshotDifference",
+    "SnapshotRecord",
+    "TensorFingerprint",
+    "TensorSnapshot",
+    "TensorSnapshotSession",
+    "first_snapshot_difference",
 ]
