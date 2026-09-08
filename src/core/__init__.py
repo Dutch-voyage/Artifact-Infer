@@ -1,3 +1,9 @@
+from src.core.graph import (
+    filter_registry_graph,
+    render_dot,
+    render_mermaid,
+    render_registry_graph,
+)
 from src.core.registry import (
     BindingSpec,
     CellSpec,
@@ -27,5 +33,9 @@ __all__ = [
     "TensorFingerprint",
     "TensorSnapshot",
     "TensorSnapshotSession",
+    "filter_registry_graph",
     "first_snapshot_difference",
+    "render_dot",
+    "render_mermaid",
+    "render_registry_graph",
 ]
