@@ -79,6 +79,80 @@ class RegistryGraph:
     def to_json(self, *, indent: int | None = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent, sort_keys=True)
 
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> RegistryGraph:
+        schema = value.get("schema")
+        if schema != REGISTRY_GRAPH_SCHEMA:
+            raise RegistryCompileError(
+                f"Unsupported registry graph schema {schema!r}"
+            )
+
+        components = []
+        for item in value.get("components", []):
+            components.append(
+                ComponentSpec(
+                    component_id=str(item["component_id"]),
+                    component_type=str(item["component_type"]),
+                    module=str(item["module"]),
+                    extension=str(item.get("extension", "core")),
+                    tags=tuple(sorted(str(tag) for tag in item.get("tags", []))),
+                    provides=tuple(
+                        sorted(
+                            CellSpec(str(cell["name"]), cell["kind"])
+                            for cell in item.get("provides", [])
+                        )
+                    ),
+                    requires=tuple(
+                        sorted(
+                            CellSpec(str(cell["name"]), cell["kind"])
+                            for cell in item.get("requires", [])
+                        )
+                    ),
+                )
+            )
+        components.sort(key=lambda item: item.component_id)
+        component_ids = [component.component_id for component in components]
+        if len(component_ids) != len(set(component_ids)):
+            raise RegistryCompileError("Registry graph contains duplicate component ids")
+
+        bindings = tuple(
+            sorted(
+                (
+                    BindingSpec(
+                        provider_id=str(item["provider_id"]),
+                        consumer_id=str(item["consumer_id"]),
+                        cell_name=(
+                            None
+                            if item.get("cell_name") is None
+                            else str(item["cell_name"])
+                        ),
+                        kind=item["kind"],
+                    )
+                    for item in value.get("bindings", [])
+                ),
+                key=lambda item: (
+                    item.provider_id,
+                    item.consumer_id,
+                    item.cell_name or "",
+                    item.kind,
+                ),
+            )
+        )
+        known_ids = set(component_ids)
+        unknown_ids = sorted(
+            {
+                component_id
+                for binding in bindings
+                for component_id in (binding.provider_id, binding.consumer_id)
+                if component_id not in known_ids
+            }
+        )
+        if unknown_ids:
+            raise RegistryCompileError(
+                f"Registry graph bindings reference unknown components {unknown_ids}"
+            )
+        return cls(components=tuple(components), bindings=bindings)
+
     def component(self, component_id: str) -> ComponentSpec:
         for component in self.components:
             if component.component_id == component_id:
