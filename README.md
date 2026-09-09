@@ -93,6 +93,71 @@ inputs and conditions. Together, snapshot and replay make accuracy debugging a
 core engine capability rather than a collection of model-specific debug
 scripts.
 
+### One debugging story: MoE works on one GPU but fails with expert parallel
+
+Suppose a model produces the expected tokens on one GPU. After enabling an MoE
+extension on eight GPUs, the final logits become different. Looking only at the
+last output does not tell us whether the problem is in routing, all-to-all
+communication, one expert, or result combination.
+
+First, compile the actual registry before loading the large model:
+
+```python
+graph = registry.compile()
+```
+
+The compiled graph may show that `moe.combine` was created but never connected
+back to `model_runner`. A cyclic extension is rejected directly:
+
+```text
+RegistryCompileError: Cycle detected: moe.dispatch -> moe.combine -> moe.dispatch
+```
+
+After fixing the registry, render the same graph instead of drawing a second
+architecture diagram by hand:
+
+```mermaid
+flowchart LR
+    Scheduler[scheduler] --> Runner[model_runner]
+    Router[moe.router] --> Dispatch[moe.dispatch]
+    Dispatch --> Experts[expert_group]
+    Experts --> Combine[moe.combine]
+    Combine --> Runner
+```
+
+This view makes it easy to check which MoE and communication extensions were
+selected, where the expert group is connected, and which modules belong to a
+pipeline stage.
+
+If the graph is correct but the result is still different, compare a trusted
+single-GPU snapshot with the expert-parallel snapshot:
+
+```python
+difference = first_snapshot_difference(reference, expert_parallel)
+print(difference.key)
+```
+
+An example result is:
+
+```text
+module:    model.layers.17.moe.combine
+tensor:    output
+call:      0
+rank:      3
+reference: 0x72ba6d85f41c9910
+candidate: 0x391ec21477d052ae
+```
+
+We now know that layers 0--16 matched and the first observable difference is
+the combine output on layer 17. Instead of dumping every tensor from every
+GPU, the developer can inspect one small execution boundary and the relevant
+ranks.
+
+The intended next step is to save the inputs and execution metadata around
+`moe.combine`, then replay only that component. The current snapshot work
+stores fingerprints for localization; saving tensor payloads and running the
+replay are follow-up features.
+
 The intended workflow is:
 
 1. compile and inspect the registered engine graph;
