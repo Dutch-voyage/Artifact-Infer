@@ -51,6 +51,12 @@ Developers can therefore continue to write and combine normal Python modules,
 while still being able to inspect the real execution path before running a
 large model.
 
+Minimum example: [compile two registered modules into JSON](examples/registry_compile.py).
+
+```bash
+uv run python -m examples.registry_compile
+```
+
 ### Registry graph visualization
 
 The compiled registry can be rendered as JSON, Mermaid, or DOT.
