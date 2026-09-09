@@ -70,6 +70,12 @@ The visualization is generated from the registry itself. It should describe
 the graph that will actually run, rather than a separate diagram that may
 become outdated.
 
+Minimum example: [render the compiled registry as a Mermaid graph](examples/registry_graph.py).
+
+```bash
+uv run python -m examples.registry_graph
+```
+
 ### Tensor snapshot and replay
 
 Accuracy issues are difficult to debug at inference-engine scale. Comparing
@@ -92,6 +98,12 @@ When two executions disagree, Artifact-Infer can compare their snapshots and
 report the first divergent layer, module, rank, or request. This is especially
 useful when moving from one GPU to tensor, expert, or pipeline parallel
 execution.
+
+Minimum example: [find the first divergent module between two runs](examples/tensor_snapshot.py).
+
+```bash
+uv run python -m examples.tensor_snapshot
+```
 
 Replay builds on the same snapshot and registry information. It allows a
 recorded operation or execution segment to be run again with its original
