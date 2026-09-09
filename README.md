@@ -70,6 +70,12 @@ The visualization is generated from the registry itself. It should describe
 the graph that will actually run, rather than a separate diagram that may
 become outdated.
 
+Minimum example: [render the compiled registry as a Mermaid graph](examples/registry_graph.py).
+
+```bash
+uv run python -m examples.registry_graph
+```
+
 ### Tensor snapshot and replay
 
 Accuracy issues are difficult to debug at inference-engine scale. Comparing
