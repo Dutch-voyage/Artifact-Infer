@@ -93,6 +93,12 @@ report the first divergent layer, module, rank, or request. This is especially
 useful when moving from one GPU to tensor, expert, or pipeline parallel
 execution.
 
+Minimum example: [find the first divergent module between two runs](examples/tensor_snapshot.py).
+
+```bash
+uv run python -m examples.tensor_snapshot
+```
+
 Replay builds on the same snapshot and registry information. It allows a
 recorded operation or execution segment to be run again with its original
 inputs and conditions. Together, snapshot and replay make accuracy debugging a
